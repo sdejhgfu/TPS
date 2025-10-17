@@ -6,6 +6,7 @@
 #include <random>
 #include <sstream>
 #include <iomanip>
+#include <cstring>
 #include <zlib.h> // For compression
 
 namespace hpie {
@@ -80,8 +81,11 @@ bool KVCache::Store(const std::vector<uint32_t>& key, const std::vector<float>& 
         CompressEntry(*entry);
     }
     
+    // Save memory size before move
+    size_t entry_size = entry->memory_size;
+    
     cache_entries_[hash] = std::move(entry);
-    memory_usage_ += entry->memory_size;
+    memory_usage_ += entry_size;
     
     return true;
 }
@@ -407,6 +411,7 @@ void KVCache::SetConfig(const CacheConfig& config) {
 }
 
 void KVCache::PrefetchEntry(const std::string& key) {
+    (void)key;  // Suppress unused warning
     // Implementation would involve prefetching based on prediction
     // For now, this is a placeholder
 }

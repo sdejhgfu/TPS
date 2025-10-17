@@ -1,6 +1,9 @@
 #pragma once
 
 #include <chrono>
+#include <string>
+#include <mutex>
+#include <unordered_map>
 
 namespace hpie {
 

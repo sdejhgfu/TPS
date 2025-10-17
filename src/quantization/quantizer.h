@@ -2,10 +2,14 @@
 
 #include <vector>
 #include <memory>
+#include <string>
 #include <cstdint>
 #include <functional>
 
 namespace hpie {
+
+// Define int4_t as a custom type (packed as uint8_t, 2 int4 values per byte)
+using int4_t = uint8_t;
 
 // Quantization types
 enum class QuantizationType {
@@ -150,6 +154,11 @@ private:
     bool simd_enabled_ = false;
     bool cpu_optimized_ = false;
     
+    // Calibration data
+    std::vector<float> min_values_;
+    std::vector<float> max_values_;
+    std::vector<float> scales_;
+    
     // Pack/unpack INT4 values
     void PackInt4(const std::vector<int8_t>& input, std::vector<uint8_t>& output);
     void UnpackInt4(const std::vector<uint8_t>& input, std::vector<int8_t>& output);
@@ -219,7 +228,7 @@ public:
     static float CalculateQuantizationError(
         const std::vector<float>& original,
         const std::vector<float>& quantized,
-        const std::string& metric = "mse");
+        const std::string& metric = std::string("mse"));
     
     // Memory usage optimization
     static size_t CalculateMemoryReduction(

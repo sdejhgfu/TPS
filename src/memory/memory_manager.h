@@ -5,6 +5,7 @@
 #include <mutex>
 #include <memory>
 #include <cstdint>
+#include <cstddef>
 #include <atomic>
 
 namespace hpie {
@@ -96,7 +97,7 @@ public:
     ~MemoryManager();
 
     // Core allocation functions
-    void* Allocate(size_t size, size_t alignment = alignof(std::max_align_t));
+    void* Allocate(size_t size, size_t alignment = alignof(max_align_t));
     void Deallocate(void* ptr);
     void* Reallocate(void* ptr, size_t new_size);
 

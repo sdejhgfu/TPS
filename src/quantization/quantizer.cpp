@@ -142,7 +142,7 @@ std::vector<float> Int8Quantizer::QuantizedMatMul(
     const QuantizationParams& params = weights.params[0];
     
     // Optimized quantized matrix multiplication
-    #pragma omp parallel for
+    // #pragma omp parallel for  // Disabled: OpenMP not available
     for (size_t i = 0; i < m; ++i) {
         for (size_t j = 0; j < n; ++j) {
             float sum = 0.0f;
@@ -243,10 +243,14 @@ void Int8Quantizer::QuantizeSIMD(const float* input, int8_t* output, size_t coun
         __m256 quantized = _mm256_div_ps(_mm256_sub_ps(input_vec, zero_point_vec), scale_vec);
         quantized = _mm256_max_ps(_mm256_min_ps(quantized, max_vec), min_vec);
         
-        // Convert to int8
+        // Convert to int8 - simplified for compatibility
         __m256i int32_vec = _mm256_cvtps_epi32(quantized);
-        __m128i int16_vec = _mm256_cvtepi32_epi16(int32_vec);
-        __m128i int8_vec = _mm_packss_epi16(int16_vec, int16_vec);
+        // Extract lower and upper 128-bit lanes
+        __m128i lower = _mm256_castsi256_si128(int32_vec);
+        __m128i upper = _mm256_extracti128_si256(int32_vec, 1);
+        // Pack int32 to int16, then int16 to int8
+        __m128i int16_vec = _mm_packs_epi32(lower, upper);
+        __m128i int8_vec = _mm_packs_epi16(int16_vec, int16_vec);
         
         _mm_storel_epi64(reinterpret_cast<__m128i*>(&output[i]), int8_vec);
     }
@@ -323,7 +327,193 @@ QuantizedTensor<int4_t> Int4Quantizer::QuantizeToInt4(const std::vector<float>& 
     return result;
 }
 
+std::vector<float> Int4Quantizer::DequantizeFromInt8(const QuantizedTensor<int8_t>& tensor) {
+    // Delegate to Int8Quantizer for now
+    Int8Quantizer quantizer;
+    return quantizer.DequantizeFromInt8(tensor);
+}
+
+std::vector<float> Int4Quantizer::DequantizeFromInt4(const QuantizedTensor<int4_t>& tensor) {
+    if (tensor.params.empty()) {
+        return {};
+    }
+    
+    const auto& params = tensor.params[0];
+    std::vector<float> result;
+    result.reserve(tensor.GetSize() * 2); // Unpack two values per byte
+    
+    for (size_t i = 0; i < tensor.GetSize(); ++i) {
+        uint8_t packed = tensor.GetData()[i];
+        int8_t val1 = static_cast<int8_t>(packed & 0xF);
+        int8_t val2 = static_cast<int8_t>((packed >> 4) & 0xF);
+        
+        // Sign extend 4-bit values
+        if (val1 & 0x8) val1 |= 0xF0;
+        if (val2 & 0x8) val2 |= 0xF0;
+        
+        result.push_back(static_cast<float>(val1) * params.scale);
+        result.push_back(static_cast<float>(val2) * params.scale);
+    }
+    
+    return result;
+}
+
+QuantizationParams Int4Quantizer::ComputeQuantizationParams(
+    const std::vector<float>& data, QuantizationType type) {
+    return QuantizationUtils::ComputeOptimalParams(data, type);
+}
+
+std::vector<float> Int4Quantizer::QuantizedMatMul(
+    const std::vector<float>& input,
+    const QuantizedTensor<int8_t>& weights,
+    size_t m, size_t n, size_t k) {
+    // For now, dequantize and use regular matmul
+    auto deq_weights = DequantizeFromInt8(weights);
+    std::vector<float> result(m * n, 0.0f);
+    
+    for (size_t i = 0; i < m; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            for (size_t l = 0; l < k; ++l) {
+                result[i * n + j] += input[i * k + l] * deq_weights[l * n + j];
+            }
+        }
+    }
+    
+    return result;
+}
+
+void Int4Quantizer::Calibrate(const std::vector<std::vector<float>>& calibration_data) {
+    if (calibration_data.empty()) return;
+    
+    // Compute statistics from calibration data
+    min_values_.clear();
+    max_values_.clear();
+    scales_.clear();
+    
+    for (const auto& data : calibration_data) {
+        auto minmax = std::minmax_element(data.begin(), data.end());
+        min_values_.push_back(*minmax.first);
+        max_values_.push_back(*minmax.second);
+        
+        float range = *minmax.second - *minmax.first;
+        scales_.push_back(range / 15.0f); // 4-bit range: -8 to 7
+    }
+}
+
+void Int4Quantizer::OptimizeForCPU() {
+    cpu_optimized_ = true;
+}
+
+void Int4Quantizer::EnableSIMD() {
+    simd_enabled_ = true;
+}
+
+void Int4Quantizer::QuantizeInt4SIMD(const float* input, uint8_t* output, size_t count) {
+    // Simplified non-SIMD implementation for now
+    for (size_t i = 0; i < count; i += 2) {
+        float quantized1 = input[i] / params_.scale;
+        float quantized2 = (i + 1 < count) ? input[i + 1] / params_.scale : 0.0f;
+        
+        int8_t val1 = static_cast<int8_t>(std::round(std::max(-8.0f, std::min(7.0f, quantized1))));
+        int8_t val2 = static_cast<int8_t>(std::round(std::max(-8.0f, std::min(7.0f, quantized2))));
+        
+        output[i / 2] = (val1 & 0xF) | ((val2 & 0xF) << 4);
+    }
+}
+
+void Int4Quantizer::DequantizeInt4SIMD(const uint8_t* input, float* output, size_t count) {
+    // Simplified non-SIMD implementation for now
+    for (size_t i = 0; i < count / 2; ++i) {
+        uint8_t packed = input[i];
+        int8_t val1 = static_cast<int8_t>(packed & 0xF);
+        int8_t val2 = static_cast<int8_t>((packed >> 4) & 0xF);
+        
+        // Sign extend
+        if (val1 & 0x8) val1 |= 0xF0;
+        if (val2 & 0x8) val2 |= 0xF0;
+        
+        output[i * 2] = static_cast<float>(val1) * params_.scale;
+        output[i * 2 + 1] = static_cast<float>(val2) * params_.scale;
+    }
+}
+
 // DynamicQuantizer implementation
+QuantizedTensor<int8_t> DynamicQuantizer::QuantizeToInt8(const std::vector<float>& data) {
+    if (!int8_quantizer_) {
+        int8_quantizer_ = std::make_unique<Int8Quantizer>();
+    }
+    return int8_quantizer_->QuantizeToInt8(data);
+}
+
+QuantizedTensor<int4_t> DynamicQuantizer::QuantizeToInt4(const std::vector<float>& data) {
+    if (!int4_quantizer_) {
+        int4_quantizer_ = std::make_unique<Int4Quantizer>();
+    }
+    return int4_quantizer_->QuantizeToInt4(data);
+}
+
+std::vector<float> DynamicQuantizer::DequantizeFromInt8(const QuantizedTensor<int8_t>& tensor) {
+    if (!int8_quantizer_) {
+        int8_quantizer_ = std::make_unique<Int8Quantizer>();
+    }
+    return int8_quantizer_->DequantizeFromInt8(tensor);
+}
+
+std::vector<float> DynamicQuantizer::DequantizeFromInt4(const QuantizedTensor<int4_t>& tensor) {
+    if (!int4_quantizer_) {
+        int4_quantizer_ = std::make_unique<Int4Quantizer>();
+    }
+    return int4_quantizer_->DequantizeFromInt4(tensor);
+}
+
+QuantizationParams DynamicQuantizer::ComputeQuantizationParams(
+    const std::vector<float>& data, QuantizationType type) {
+    return QuantizationUtils::ComputeOptimalParams(data, type);
+}
+
+std::vector<float> DynamicQuantizer::QuantizedMatMul(
+    const std::vector<float>& input,
+    const QuantizedTensor<int8_t>& weights,
+    size_t m, size_t n, size_t k) {
+    if (!int8_quantizer_) {
+        int8_quantizer_ = std::make_unique<Int8Quantizer>();
+    }
+    return int8_quantizer_->QuantizedMatMul(input, weights, m, n, k);
+}
+
+void DynamicQuantizer::Calibrate(const std::vector<std::vector<float>>& calibration_data) {
+    if (!int8_quantizer_) {
+        int8_quantizer_ = std::make_unique<Int8Quantizer>();
+    }
+    if (!int4_quantizer_) {
+        int4_quantizer_ = std::make_unique<Int4Quantizer>();
+    }
+    int8_quantizer_->Calibrate(calibration_data);
+    int4_quantizer_->Calibrate(calibration_data);
+}
+
+void DynamicQuantizer::OptimizeForCPU() {
+    if (!int8_quantizer_) {
+        int8_quantizer_ = std::make_unique<Int8Quantizer>();
+    }
+    if (!int4_quantizer_) {
+        int4_quantizer_ = std::make_unique<Int4Quantizer>();
+    }
+    int8_quantizer_->OptimizeForCPU();
+    int4_quantizer_->OptimizeForCPU();
+}
+
+void DynamicQuantizer::EnableSIMD() {
+    if (!int8_quantizer_) {
+        int8_quantizer_ = std::make_unique<Int8Quantizer>();
+    }
+    if (!int4_quantizer_) {
+        int4_quantizer_ = std::make_unique<Int4Quantizer>();
+    }
+    int8_quantizer_->EnableSIMD();
+    int4_quantizer_->EnableSIMD();
+}
+
 QuantizationType DynamicQuantizer::SelectOptimalType(const std::vector<float>& data) {
     // Analyze data distribution to select optimal quantization type
     auto minmax = std::minmax_element(data.begin(), data.end());
@@ -369,7 +559,6 @@ QuantizationParams QuantizationUtils::ComputeOptimalParams(
     
     // Iterative optimization to minimize quantization error
     float best_error = std::numeric_limits<float>::max();
-    float best_scale = 0.0f;
     
     for (int iter = 0; iter < 100; ++iter) {
         float scale = (params.max_val - params.min_val) / (1 << (type == QuantizationType::INT8 ? 8 : 4));
@@ -385,7 +574,6 @@ QuantizationParams QuantizationUtils::ComputeOptimalParams(
         
         if (error < best_error) {
             best_error = error;
-            best_scale = scale;
             params.scale = scale;
             params.zero_point = zero_point;
         }

@@ -6,6 +6,7 @@
 namespace hpie {
 
 bool Tokenizer::Load(const std::string& tokenizer_path) {
+    (void)tokenizer_path;  // Suppress unused warning
     // For this implementation, we'll use a simplified tokenizer
     // In a real implementation, you would load the actual tokenizer files
     
@@ -81,7 +82,6 @@ std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
             tokens.push_back(it->second);
         } else {
             // Try to find partial matches (subword tokenization)
-            bool found = false;
             size_t start = 0;
             
             while (start < word.length()) {
@@ -91,7 +91,8 @@ std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
                 // Find longest matching subword
                 for (const auto& pair : token_to_id_) {
                     const std::string& token = pair.first;
-                    if (word.substr(start).starts_with(token) && 
+                    // C++17 compatible starts_with
+                    if (word.substr(start).compare(0, token.length(), token) == 0 && 
                         token.length() > best_match_len) {
                         best_match_len = token.length();
                         best_match_id = pair.second;
@@ -101,7 +102,6 @@ std::vector<uint32_t> Tokenizer::Encode(const std::string& text) {
                 if (best_match_len > 0) {
                     tokens.push_back(best_match_id);
                     start += best_match_len;
-                    found = true;
                 } else {
                     // Character-level fallback
                     tokens.push_back(static_cast<uint32_t>(word[start]));

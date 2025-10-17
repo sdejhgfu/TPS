@@ -109,6 +109,7 @@ std::vector<float> ModelLoader::GetEmbedding(uint32_t token_id) {
 }
 
 std::vector<float> ModelLoader::GetLogits(size_t sequence_length) {
+    (void)sequence_length;  // Suppress unused warning
     if (!model_loaded_) {
         return {};
     }

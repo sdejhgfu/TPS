@@ -12,6 +12,15 @@
 
 namespace hpie {
 
+// Cache replacement policy enum (must be defined before CacheConfig)
+enum class CacheReplacementPolicy {
+    LRU,        // Least Recently Used
+    LFU,        // Least Frequently Used
+    FIFO,       // First In First Out
+    RANDOM,     // Random replacement
+    ADAPTIVE    // Adaptive based on access patterns
+};
+
 // Cache configuration
 struct CacheConfig {
     size_t max_entries;
@@ -20,14 +29,6 @@ struct CacheConfig {
     bool enable_prefetch;
     bool enable_compression;
     CacheReplacementPolicy replacement_policy;
-};
-
-enum class CacheReplacementPolicy {
-    LRU,        // Least Recently Used
-    LFU,        // Least Frequently Used
-    FIFO,       // First In First Out
-    RANDOM,     // Random replacement
-    ADAPTIVE    // Adaptive based on access patterns
 };
 
 // Key-Value cache entry

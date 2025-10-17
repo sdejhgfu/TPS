@@ -23,6 +23,11 @@ void TestTokenizer() {
     hpie::Tokenizer tokenizer;
     assert(!tokenizer.IsLoaded());
     
+    // Load the tokenizer (uses default vocab)
+    bool loaded = tokenizer.Load("");
+    assert(loaded);
+    assert(tokenizer.IsLoaded());
+    
     // Test basic tokenization
     auto tokens = tokenizer.Encode("Hello world");
     assert(!tokens.empty());
@@ -44,6 +49,7 @@ void TestMemoryManager() {
     manager.Deallocate(ptr);
     
     auto stats = manager.GetStats();
+    (void)stats;  // Suppress unused warning
     assert(stats.total_memory > 0);
     
     std::cout << "✓ Memory Manager test passed\n";
@@ -57,7 +63,7 @@ void TestQuantizer() {
     hpie::Int8Quantizer quantizer;
     auto quantized = quantizer.QuantizeToInt8(test_data);
     
-    assert(!quantized.GetData() == nullptr);
+    assert(quantized.GetData() != nullptr);
     assert(quantized.GetSize() == test_data.size());
     
     auto dequantized = quantizer.DequantizeFromInt8(quantized);
@@ -75,6 +81,7 @@ void TestKVCache() {
     std::vector<float> value = {1.0f, 2.0f, 3.0f};
     
     bool stored = cache.Store(key, value);
+    (void)stored;  // Suppress unused warning in release builds
     assert(stored);
     
     auto retrieved = cache.Retrieve(key);

@@ -3,6 +3,7 @@
 #include "../utils/timer.h"
 #include <algorithm>
 #include <numeric>
+#include <cstring>
 #include <immintrin.h> // For SIMD intrinsics
 
 namespace hpie {
@@ -31,9 +32,9 @@ bool InferenceEngine::InitializeComponents() {
             );
         }
         
-        // Initialize quantizer
+        // Initialize quantizer (use DynamicQuantizer as default)
         if (config_.enable_quantization) {
-            quantizer_ = std::make_unique<Quantizer>();
+            quantizer_ = std::make_unique<DynamicQuantizer>();
         }
         
         // Initialize tokenizer
@@ -268,7 +269,7 @@ void InferenceEngine::OptimizedMatrixMultiply(
     size_t m, size_t n, size_t k) {
     
     // Use SIMD for optimized matrix multiplication
-    #pragma omp parallel for
+    // #pragma omp parallel for  // Disabled: OpenMP not available
     for (size_t i = 0; i < m; ++i) {
         for (size_t j = 0; j < n; j += 8) {
             __m256 sum = _mm256_setzero_ps();
@@ -291,10 +292,13 @@ void InferenceEngine::OptimizedAttention(
     // Optimized attention computation using SIMD
     const float scale = 1.0f / std::sqrt(static_cast<float>(hidden_dim));
     
-    #pragma omp parallel for
+    // Suppress unused parameter warning
+    (void)value;
+    
+    // #pragma omp parallel for  // Disabled: OpenMP not available
     for (size_t i = 0; i < seq_len; ++i) {
         for (size_t j = 0; j < seq_len; j += 8) {
-            __m256 qv = _mm256_loadu_ps(&query[i * hidden_dim]);
+            // __m256 qv = _mm256_loadu_ps(&query[i * hidden_dim]);  // Unused
             __m256 score_sum = _mm256_setzero_ps();
             
             for (size_t k = 0; k < hidden_dim; k += 8) {
@@ -317,7 +321,7 @@ std::vector<std::vector<Token>> InferenceEngine::GenerateBatch(
     results.reserve(prompts.size());
     
     // Process batch in parallel
-    #pragma omp parallel for
+    // #pragma omp parallel for  // Disabled: OpenMP not available
     for (size_t i = 0; i < prompts.size(); ++i) {
         results[i] = Generate(prompts[i]);
     }

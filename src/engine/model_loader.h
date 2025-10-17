@@ -61,6 +61,7 @@ private:
     bool LoadWeights(const std::string& weights_path);
     void InitializeRandomWeights();
     void AllocateModelMemory();
+    size_t CalculateModelSize() const;
 };
 
 } // namespace hpie

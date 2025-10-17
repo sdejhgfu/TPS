@@ -8,8 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Compiler-specific options
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mtune=native")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto -fno-exceptions")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -g")  # Added -g for debug symbols
 endif()
 
 # Include directories
@@ -29,13 +29,8 @@ set(ENGINE_SOURCES
     src/engine/model_loader.cpp
     src/engine/sampler.cpp
     src/memory/memory_manager.cpp
-    src/memory/page_manager.cpp
-    src/memory/memory_pool.cpp
     src/quantization/quantizer.cpp
-    src/quantization/int8_quantizer.cpp
-    src/quantization/int4_quantizer.cpp
     src/cache/kv_cache.cpp
-    src/cache/attention_cache.cpp
     src/utils/math_utils.cpp
     src/utils/timer.cpp
     src/utils/logger.cpp
@@ -61,9 +56,9 @@ add_executable(benchmark
 )
 
 # Link libraries
-target_link_libraries(inference_engine)
-target_link_libraries(test_runner)
-target_link_libraries(benchmark)
+target_link_libraries(inference_engine z)
+target_link_libraries(test_runner z)
+target_link_libraries(benchmark z)
 
 # Compiler definitions
 target_compile_definitions(inference_engine PRIVATE

@@ -30,6 +30,29 @@ public:
     
     explicit BenchmarkSuite(InferenceEngine& engine) : engine_(engine) {}
     
+    std::vector<BenchmarkResult> RunQuickBenchmark() {
+        std::vector<BenchmarkResult> results;
+        
+        // Quick test with 3 simple prompts
+        std::vector<std::pair<std::string, std::string>> test_cases = {
+            {"Simple Question", "What is AI?"},
+            {"Technical Explanation", "Explain artificial intelligence and machine learning."},
+            {"Code Generation", "Write a Python function to calculate fibonacci numbers."}
+        };
+        
+        std::cout << "Running quick benchmark (3 test cases)...\n\n";
+        
+        for (const auto& test_case : test_cases) {
+            BenchmarkResult result = RunSingleBenchmark(test_case.first, test_case.second);
+            results.push_back(result);
+            
+            PrintBenchmarkResult(result);
+            std::cout << "\n";
+        }
+        
+        return results;
+    }
+    
     std::vector<BenchmarkResult> RunComprehensiveBenchmark() {
         std::vector<BenchmarkResult> results;
         
@@ -240,6 +263,10 @@ int main(int argc, char* argv[]) {
     
     std::string model_path;
     bool generate_report = true;
+    bool quick_test = false;
+    size_t num_threads = 0; // 0 = auto-detect
+    size_t max_memory_mb = 0; // 0 = unlimited
+    size_t max_tokens = 512;
     
     // Parse arguments
     for (int i = 1; i < argc; ++i) {
@@ -248,8 +275,25 @@ int main(int argc, char* argv[]) {
             model_path = argv[++i];
         } else if (arg == "--no-report") {
             generate_report = false;
+        } else if (arg == "--quick") {
+            quick_test = true;
+            max_tokens = 50;
+        } else if (arg == "--threads" && i + 1 < argc) {
+            num_threads = std::stoul(argv[++i]);
+        } else if (arg == "--memory" && i + 1 < argc) {
+            max_memory_mb = std::stoul(argv[++i]);
+        } else if (arg == "--max-tokens" && i + 1 < argc) {
+            max_tokens = std::stoul(argv[++i]);
         } else if (arg == "--help") {
-            std::cout << "Usage: " << argv[0] << " --model <path> [--no-report]\n";
+            std::cout << "Usage: " << argv[0] << " --model <path> [OPTIONS]\n";
+            std::cout << "Options:\n";
+            std::cout << "  --model <path>        Path to model (required)\n";
+            std::cout << "  --threads <num>       Number of threads (default: auto)\n";
+            std::cout << "  --memory <mb>         Maximum memory in MB (default: unlimited)\n";
+            std::cout << "  --max-tokens <num>    Maximum tokens per generation (default: 512)\n";
+            std::cout << "  --quick               Run quick test (3 prompts, 50 tokens max)\n";
+            std::cout << "  --no-report           Skip report generation\n";
+            std::cout << "  --help                Show this help\n";
             return 0;
         }
     }
@@ -259,14 +303,33 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // Display resource constraints
+    if (num_threads > 0 || max_memory_mb > 0) {
+        std::cout << "Resource Constraints:\n";
+        if (num_threads > 0) {
+            std::cout << "  Threads: " << num_threads << "\n";
+        }
+        if (max_memory_mb > 0) {
+            std::cout << "  Memory: " << max_memory_mb << " MB\n";
+        }
+        std::cout << "\n";
+    }
+    
     try {
         // Configure engine for benchmarking
         InferenceConfig config;
-        config.max_new_tokens = 512;
+        config.max_new_tokens = max_tokens;
         config.enable_caching = true;
         config.enable_quantization = true;
         config.use_simd = true;
         config.enable_prefill_optimization = true;
+        config.num_threads = num_threads;
+        config.max_memory_mb = max_memory_mb;
+        config.use_lightweight_model = (max_memory_mb > 0 && max_memory_mb < 16000) || quick_test;
+        
+        if (config.use_lightweight_model) {
+            std::cout << "Using lightweight model configuration\n";
+        }
         
         InferenceEngine engine(config);
         
@@ -280,7 +343,8 @@ int main(int argc, char* argv[]) {
         
         // Run benchmark
         BenchmarkSuite benchmark(engine);
-        auto results = benchmark.RunComprehensiveBenchmark();
+        auto results = quick_test ? benchmark.RunQuickBenchmark() 
+                                   : benchmark.RunComprehensiveBenchmark();
         
         if (generate_report) {
             benchmark.GenerateReport(results);

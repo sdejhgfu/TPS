@@ -15,6 +15,7 @@ public:
     
     // Parameter updates
     void UpdateParameters(float temperature, float top_p, int top_k);
+    void SetSeed(uint32_t seed);  // For reproducible results
     
     // Sampling strategies
     uint32_t GreedySample(const std::vector<float>& logits);

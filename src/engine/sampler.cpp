@@ -7,7 +7,11 @@ namespace hpie {
 
 Sampler::Sampler(float temperature, float top_p, int top_k)
     : temperature_(temperature), top_p_(top_p), top_k_(top_k),
-      rng_(std::random_device{}()) {
+      rng_(12345) {  // Fixed seed for reproducible results
+}
+
+void Sampler::SetSeed(uint32_t seed) {
+    rng_.seed(seed);
 }
 
 uint32_t Sampler::Sample(const std::vector<float>& logits) {

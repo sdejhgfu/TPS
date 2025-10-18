@@ -6,7 +6,7 @@
 namespace hpie {
 
 ModelLoader::ModelLoader(MemoryManager* memory_manager)
-    : memory_manager_(memory_manager), model_loaded_(false),
+    : memory_manager_(memory_manager), model_loaded_(false), use_lightweight_(false),
       hidden_size_(4096), num_layers_(40), num_heads_(32),
       vocab_size_(50257), max_sequence_length_(4096), model_size_(0) {
 }
@@ -15,8 +15,30 @@ ModelLoader::~ModelLoader() {
     // Cleanup handled by memory manager
 }
 
-bool ModelLoader::LoadModel(const std::string& model_path) {
+bool ModelLoader::LoadModel(const std::string& model_path, bool use_lightweight) {
     Logger::Info("Loading model from: %s", model_path.c_str());
+    use_lightweight_ = use_lightweight;
+    
+    // Adjust model size based on mode
+    if (use_lightweight_) {
+        // Micro model for testing on very resource-constrained systems
+        // Approximate 100M parameter model for quick testing
+        hidden_size_ = 256;       // Very small for quick testing
+        num_layers_ = 4;          // Minimal layers
+        num_heads_ = 4;           // Minimal heads
+        vocab_size_ = 5000;       // Reduced vocabulary
+        max_sequence_length_ = 128; // Short sequences
+        Logger::Info("Using micro model configuration for resource-constrained testing");
+        Logger::Info("NOTE: This is a toy model for performance testing only, not actual inference");
+    } else {
+        // Full 20B parameter model
+        hidden_size_ = 4096;
+        num_layers_ = 40;
+        num_heads_ = 32;
+        vocab_size_ = 50257;
+        max_sequence_length_ = 4096;
+        Logger::Info("Using full-size 20B parameter model configuration");
+    }
     
     // For this implementation, we'll initialize with random weights
     // In a real implementation, you would load actual model weights
@@ -36,9 +58,11 @@ bool ModelLoader::LoadModel(const std::string& model_path) {
 }
 
 void ModelLoader::InitializeRandomWeights() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    // Use fixed seed for reproducible results
+    std::mt19937 gen(42);  // Fixed seed for deterministic behavior
     std::normal_distribution<float> dist(0.0f, 0.02f);
+    
+    Logger::Info("Initializing mock model with deterministic weights for reproducible testing");
     
     // Initialize embeddings
     embeddings_.resize(vocab_size_ * hidden_size_);
@@ -79,6 +103,9 @@ void ModelLoader::InitializeRandomWeights() {
     for (auto& weight : output_weights_) {
         weight = dist(gen);
     }
+    
+    Logger::Info("Mock model initialized with %.2f GB of deterministic weights", 
+                 CalculateModelSize() / (1024.0 * 1024.0 * 1024.0));
 }
 
 size_t ModelLoader::CalculateModelSize() const {
@@ -109,22 +136,26 @@ std::vector<float> ModelLoader::GetEmbedding(uint32_t token_id) {
 }
 
 std::vector<float> ModelLoader::GetLogits(size_t sequence_length) {
-    (void)sequence_length;  // Suppress unused warning
     if (!model_loaded_) {
         return {};
     }
     
-    // Simplified logit computation
-    // In practice, this would use the actual output from the last layer
+    // Deterministic logit computation for reproducible results
     std::vector<float> logits(vocab_size_);
     
-    // Random logits for demonstration
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    // Use sequence_length as seed for deterministic but varied logits
+    std::mt19937 gen(static_cast<uint32_t>(42 + sequence_length));
     std::normal_distribution<float> dist(0.0f, 1.0f);
     
     for (auto& logit : logits) {
         logit = dist(gen);
+    }
+    
+    // Add some bias to common tokens for more realistic output
+    if (logits.size() > 100) {
+        logits[13] += 0.5f;  // Common token biases
+        logits[50] += 0.3f;
+        logits[99] += 0.2f;
     }
     
     return logits;
@@ -136,8 +167,20 @@ void ModelLoader::ComputeAttention(size_t layer, const std::vector<float>& input
         return;
     }
     
+    if (input.size() < hidden_size_) {
+        Logger::Warning("Input size %zu less than hidden_size %zu", 
+                       input.size(), hidden_size_);
+        return;
+    }
+    
     // Simplified attention computation
     size_t seq_len = input.size() / hidden_size_;
+    
+    // Limit sequence length to prevent excessive computation
+    if (seq_len > 512) {
+        Logger::Warning("Sequence length %zu too large, truncating to 512", seq_len);
+        seq_len = 512;
+    }
     
     // Initialize attention weights
     attention_weights.resize(seq_len * seq_len);
@@ -149,7 +192,11 @@ void ModelLoader::ComputeAttention(size_t layer, const std::vector<float>& input
             
             // Simplified attention score computation
             for (size_t k = 0; k < hidden_size_; ++k) {
-                score += input[i * hidden_size_ + k] * input[j * hidden_size_ + k];
+                size_t idx_i = i * hidden_size_ + k;
+                size_t idx_j = j * hidden_size_ + k;
+                if (idx_i < input.size() && idx_j < input.size()) {
+                    score += input[idx_i] * input[idx_j];
+                }
             }
             
             // Apply scaling
@@ -180,16 +227,34 @@ void ModelLoader::ComputeFeedForward(size_t layer, std::vector<float>& hidden_st
         return;
     }
     
+    if (hidden_states.size() < hidden_size_) {
+        Logger::Warning("Hidden states size %zu less than hidden_size %zu", 
+                       hidden_states.size(), hidden_size_);
+        return;
+    }
+    
     size_t seq_len = hidden_states.size() / hidden_size_;
     std::vector<float> intermediate(seq_len * hidden_size_ * 4); // 4x expansion
+    
+    // Check if feed_forward_weights_ is properly sized
+    if (feed_forward_weights_[layer].size() < hidden_size_ * hidden_size_ * 4) {
+        Logger::Error("Feed forward weights undersized for layer %zu: %zu < %zu",
+                     layer, feed_forward_weights_[layer].size(), 
+                     hidden_size_ * hidden_size_ * 4);
+        return;
+    }
     
     // First linear transformation (simplified)
     for (size_t i = 0; i < seq_len; ++i) {
         for (size_t j = 0; j < hidden_size_ * 4; ++j) {
             float sum = 0.0f;
             for (size_t k = 0; k < hidden_size_; ++k) {
-                sum += hidden_states[i * hidden_size_ + k] * 
-                       feed_forward_weights_[layer][k * (hidden_size_ * 4) + j];
+                // Fixed indexing: row-major layout
+                size_t weight_idx = k * (hidden_size_ * 4) + j;
+                if (weight_idx < feed_forward_weights_[layer].size()) {
+                    sum += hidden_states[i * hidden_size_ + k] * 
+                           feed_forward_weights_[layer][weight_idx];
+                }
             }
             intermediate[i * (hidden_size_ * 4) + j] = sum;
         }

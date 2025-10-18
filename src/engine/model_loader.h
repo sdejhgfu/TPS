@@ -14,8 +14,9 @@ public:
     ~ModelLoader();
 
     // Model loading
-    bool LoadModel(const std::string& model_path);
+    bool LoadModel(const std::string& model_path, bool use_lightweight = false);
     bool IsModelLoaded() const { return model_loaded_; }
+    void SetLightweightMode(bool lightweight) { use_lightweight_ = lightweight; }
 
     // Model information
     size_t GetHiddenSize() const { return hidden_size_; }
@@ -41,6 +42,7 @@ public:
 private:
     MemoryManager* memory_manager_;
     bool model_loaded_;
+    bool use_lightweight_;
     
     // Model architecture parameters
     size_t hidden_size_;

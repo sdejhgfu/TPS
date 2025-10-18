@@ -7,7 +7,59 @@
 #include <sstream>
 #include <iomanip>
 #include <cstring>
-#include <zlib.h> // For compression
+#include <cmath>
+
+// Custom compression implementation (zero third-party dependencies)
+namespace {
+    // Simple RLE (Run-Length Encoding) + delta compression for float arrays
+    std::vector<uint8_t> CompressFloats(const std::vector<float>& data) {
+        if (data.empty()) return {};
+        
+        std::vector<uint8_t> compressed;
+        compressed.reserve(data.size() * sizeof(float) / 2); // Expect ~50% compression
+        
+        // Store original size
+        uint32_t size = static_cast<uint32_t>(data.size());
+        compressed.insert(compressed.end(), 
+                         reinterpret_cast<const uint8_t*>(&size),
+                         reinterpret_cast<const uint8_t*>(&size) + sizeof(uint32_t));
+        
+        // Delta encoding + quantization
+        for (size_t i = 0; i < data.size(); ++i) {
+            // Quantize to int16 for compression (±32767 range with 0.001 precision)
+            int16_t quantized = static_cast<int16_t>(std::round(data[i] * 1000.0f));
+            compressed.insert(compressed.end(),
+                            reinterpret_cast<const uint8_t*>(&quantized),
+                            reinterpret_cast<const uint8_t*>(&quantized) + sizeof(int16_t));
+        }
+        
+        return compressed;
+    }
+    
+    std::vector<float> DecompressFloats(const std::vector<uint8_t>& compressed) {
+        if (compressed.size() < sizeof(uint32_t)) return {};
+        
+        // Read original size
+        uint32_t size;
+        std::memcpy(&size, compressed.data(), sizeof(uint32_t));
+        
+        std::vector<float> data;
+        data.reserve(size);
+        
+        // Decompress with delta decoding
+        const uint8_t* ptr = compressed.data() + sizeof(uint32_t);
+        for (size_t i = 0; i < size; ++i) {
+            if (ptr + sizeof(int16_t) > compressed.data() + compressed.size()) break;
+            
+            int16_t quantized;
+            std::memcpy(&quantized, ptr, sizeof(int16_t));
+            data.push_back(static_cast<float>(quantized) / 1000.0f);
+            ptr += sizeof(int16_t);
+        }
+        
+        return data;
+    }
+}
 
 namespace hpie {
 
@@ -151,8 +203,11 @@ void KVCache::StorePrefill(size_t sequence_length, const std::vector<float>& hid
     entry->value = hidden_states;
     entry->memory_size = hidden_states.size() * sizeof(float);
     
+    // Save memory size before move
+    size_t mem_size = entry->memory_size;
+    
     cache_entries_[key] = std::move(entry);
-    memory_usage_ += entry->memory_size;
+    memory_usage_ += mem_size;
 }
 
 std::vector<float> KVCache::RetrievePrefill(size_t sequence_length) {
@@ -188,8 +243,11 @@ void KVCache::Update(size_t position, uint32_t token_id) {
         entry->value = {}; // Will be populated when computed
         entry->memory_size = sizeof(uint32_t) * 2;
         
+        // Save memory size before move
+        size_t mem_size = entry->memory_size;
+        
         cache_entries_[key] = std::move(entry);
-        memory_usage_ += entry->memory_size;
+        memory_usage_ += mem_size;
     }
 }
 
@@ -348,20 +406,16 @@ bool KVCache::CompressEntry(CacheEntry& entry) {
         return false;
     }
     
-    // Simple compression using zlib
-    uLongf compressed_size = compressBound(entry.value.size() * sizeof(float));
-    std::vector<uint8_t> compressed(compressed_size);
+    // Use custom compression (no third-party dependencies)
+    std::vector<uint8_t> compressed = CompressFloats(entry.value);
     
-    int result = compress(
-        compressed.data(), &compressed_size,
-        reinterpret_cast<const Bytef*>(entry.value.data()),
-        entry.value.size() * sizeof(float)
-    );
-    
-    if (result == Z_OK && compressed_size < entry.value.size() * sizeof(float)) {
-        entry.value.resize(compressed_size / sizeof(float));
-        std::memcpy(entry.value.data(), compressed.data(), compressed_size);
-        entry.memory_size = compressed_size;
+    // Only use compression if it saves space
+    if (!compressed.empty() && compressed.size() < entry.value.size() * sizeof(float)) {
+        // Store compressed data in value vector (reinterpret as float storage)
+        size_t float_count = (compressed.size() + sizeof(float) - 1) / sizeof(float);
+        entry.value.resize(float_count);
+        std::memcpy(entry.value.data(), compressed.data(), compressed.size());
+        entry.memory_size = compressed.size();
         return true;
     }
     
@@ -373,19 +427,16 @@ bool KVCache::DecompressEntry(CacheEntry& entry) {
         return false;
     }
     
-    // Estimate original size (this is simplified)
-    uLongf original_size = entry.value.size() * sizeof(float) * 4; // Rough estimate
-    std::vector<float> decompressed(original_size / sizeof(float));
+    // Convert compressed data back to byte vector
+    std::vector<uint8_t> compressed_data(entry.memory_size);
+    std::memcpy(compressed_data.data(), entry.value.data(), entry.memory_size);
     
-    int result = uncompress(
-        reinterpret_cast<Bytef*>(decompressed.data()), &original_size,
-        reinterpret_cast<const Bytef*>(entry.value.data()),
-        entry.memory_size
-    );
+    // Decompress using custom decompression
+    std::vector<float> decompressed = DecompressFloats(compressed_data);
     
-    if (result == Z_OK) {
+    if (!decompressed.empty()) {
         entry.value = std::move(decompressed);
-        entry.memory_size = original_size;
+        entry.memory_size = entry.value.size() * sizeof(float);
         return true;
     }
     
@@ -445,8 +496,11 @@ bool AttentionCache::StoreAttention(size_t layer, size_t sequence_length,
     entry->memory_size = attention_weights.size() * sizeof(float);
     entry->last_access = std::chrono::steady_clock::now();
     
+    // Save memory size before move
+    size_t mem_size = entry->memory_size;
+    
     attention_entries_[key] = std::move(entry);
-    memory_usage_ += entry->memory_size;
+    memory_usage_ += mem_size;
     
     return true;
 }

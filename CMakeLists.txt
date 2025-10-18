@@ -55,10 +55,8 @@ add_executable(benchmark
     ${ENGINE_SOURCES}
 )
 
-# Link libraries
-target_link_libraries(inference_engine z)
-target_link_libraries(test_runner z)
-target_link_libraries(benchmark z)
+# Link libraries (zero third-party dependencies - only system libraries)
+# No external libraries needed - pure C++ implementation
 
 # Compiler definitions
 target_compile_definitions(inference_engine PRIVATE

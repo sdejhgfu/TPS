@@ -22,6 +22,7 @@ struct InferenceConfig {
     size_t max_new_tokens = 512;
     size_t batch_size = 1;
     size_t num_threads = 0; // 0 = auto-detect
+    size_t max_memory_mb = 0; // 0 = unlimited
     bool enable_caching = true;
     bool enable_quantization = true;
     float temperature = 0.7f;
@@ -29,6 +30,7 @@ struct InferenceConfig {
     int top_k = 50;
     bool use_simd = true;
     bool enable_prefill_optimization = true;
+    bool use_lightweight_model = false; // Use reduced model for testing
 };
 
 struct Token {

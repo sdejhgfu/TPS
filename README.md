@@ -33,17 +33,117 @@ This project implements a high-performance inference engine optimized for commod
 └── scripts/               # Build and deployment scripts
 ```
 
-## Build Instructions
+## Getting Started
+
+### Prerequisites
+
+- Linux OS (tested on Ubuntu 20.04+)
+- GCC 9.0+ with C++17 support
+- CMake 3.16+
+- 32GB+ RAM (recommended for optimal performance)
+- Multi-core CPU with AVX2/AVX-512 support (recommended)
+
+### Build Instructions
 
 ```bash
-# Build the inference engine
-make build
+mkdir -p build
+cd build
+cmake ..
+make -j$(nproc)
+```
 
-# Run benchmarks
-make benchmark
+## Running the Inference Engine
 
-# Run tests
-make test
+### Basic Usage
+
+```bash
+cd build
+
+# Run inference with a simple prompt
+./inference_engine --model mock_model --prompt "Hello, world!"
+
+# Run with custom parameters
+./inference_engine \
+    --model mock_model \
+    --prompt "Write a story about AI" \
+    --max-tokens 256 \
+    --threads 16 \
+    --seed 42
+```
+
+### Available Options
+
+- `--model <path>` - Path to model weights (use "mock_model" for testing)
+- `--prompt <text>` - Input prompt for generation
+- `--max-tokens <n>` - Maximum number of tokens to generate (default: 128)
+- `--threads <n>` - Number of CPU threads to use (default: auto-detect)
+- `--memory <mb>` - Maximum memory in MB (default: auto-detect)
+- `--seed <n>` - Random seed for reproducible results
+
+## Testing Performance
+
+### Quick Performance Test
+
+```bash
+cd build
+./benchmark --model mock_model
+```
+
+### Full Performance Benchmark
+
+```bash
+# From project root
+bash scripts/benchmark_full.sh
+```
+
+### Comprehensive Validation Suite
+
+```bash
+# From project root
+bash scripts/validate_all.sh
+```
+
+### Check Results
+
+```bash
+cat build/benchmark_report.txt
+```
+
+## Running Tests
+
+### Unit Tests
+
+```bash
+cd build
+./test_runner
+```
+
+### Memory Leak Check
+
+```bash
+cd build
+valgrind --leak-check=full ./test_runner
+```
+
+## Quick Start Guide
+
+```bash
+# Build the project
+mkdir -p build && cd build
+cmake .. && make -j$(nproc)
+
+# Run unit tests
+./test_runner
+
+# Run a quick benchmark
+./benchmark --model mock_model
+
+# Run comprehensive validation (from project root)
+cd ..
+bash scripts/validate_all.sh
+
+# Check results
+cat build/benchmark_report.txt
 ```
 
 ## Performance Metrics

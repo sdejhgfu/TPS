@@ -1,82 +1,38 @@
 cmake_minimum_required(VERSION 3.16)
-project(HighPerformanceInferenceEngine VERSION 1.0.0 LANGUAGES CXX C)
 
-# Set C++ standard
+project(TPSInference LANGUAGES CXX)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Compiler-specific options
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mtune=native")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -g")  # Added -g for debug symbols
-endif()
+# Optimize for 2-socket, 8-core (16 total), 32GB DDR5 system
+add_compile_options(-O3 -march=x86-64 -mavx2 -mfma -fno-exceptions -fno-rtti -flto)
+add_compile_options(-funroll-loops -ffast-math -fno-common -Wall -Wextra -Wno-unused-parameter)
+add_compile_options(-fopenmp)  # Enable OpenMP for multi-core utilization
 
-# Include directories
-include_directories(
-    src
-    src/engine
-    src/memory
-    src/quantization
-    src/cache
-    src/utils
+# Set thread count for 16 cores (2 sockets * 8 cores)
+set(CMAKE_THREAD_PREFER_PTHREAD ON)
+find_package(Threads REQUIRED)
+
+# Create the core library
+add_library(tps_core
+    src/inference_engine.cpp
 )
+target_include_directories(tps_core PUBLIC src)
+target_link_libraries(tps_core PRIVATE Threads::Threads)
 
-# Source files
-set(ENGINE_SOURCES
-    src/engine/inference_engine.cpp
-    src/engine/tokenizer.cpp
-    src/engine/model_loader.cpp
-    src/engine/sampler.cpp
-    src/memory/memory_manager.cpp
-    src/quantization/quantizer.cpp
-    src/cache/kv_cache.cpp
-    src/utils/math_utils.cpp
-    src/utils/timer.cpp
-    src/utils/logger.cpp
-)
-
-# Main executable
-add_executable(inference_engine
+# Main benchmark executable
+add_executable(tps
     src/main.cpp
-    ${ENGINE_SOURCES}
 )
+target_link_libraries(tps PRIVATE tps_core)
 
 # Test executable
-file(GLOB TEST_SOURCES "tests/*.cpp")
-add_executable(test_runner
-    ${TEST_SOURCES}
-    ${ENGINE_SOURCES}
+add_executable(tps_tests
+    src/test.cpp
 )
+target_link_libraries(tps_tests PRIVATE tps_core)
 
-# Benchmark executable
-add_executable(benchmark
-    src/benchmark.cpp
-    ${ENGINE_SOURCES}
-)
-
-# Link libraries (zero third-party dependencies - only system libraries)
-# No external libraries needed - pure C++ implementation
-
-# Compiler definitions
-target_compile_definitions(inference_engine PRIVATE
-    OPTIMIZE_FOR_CPU
-    ENABLE_SIMD
-    ENABLE_MULTITHREADING
-)
-
-# Enable testing
-enable_testing()
-add_test(NAME unit_tests COMMAND test_runner)
-
-# Installation
-install(TARGETS inference_engine test_runner benchmark
-    RUNTIME DESTINATION bin
-)
-
-# CPack configuration
-set(CPACK_PACKAGE_NAME "HighPerformanceInferenceEngine")
-set(CPACK_PACKAGE_VERSION "1.0.0")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-Performance Inference Engine for GPT-OSS-20B")
-include(CPack)
-
+# Install targets
+install(TARGETS tps tps_tests RUNTIME DESTINATION bin)

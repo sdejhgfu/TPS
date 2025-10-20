@@ -1,53 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# High-Performance Inference Engine Build Script
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$ROOT_DIR/build"
 
-set -e
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
 
-echo "Building High-Performance Inference Engine..."
-echo "============================================="
+cmake -DCMAKE_BUILD_TYPE=Release "$ROOT_DIR"
+cmake --build . -j$(nproc)
 
-# Check if we're in the right directory
-if [ ! -f "CMakeLists.txt" ]; then
-    echo "Error: CMakeLists.txt not found. Please run this script from the project root."
-    exit 1
-fi
+echo "Running unit tests..."
+"$BUILD_DIR/tps_tests"
 
-# Create build directory
-mkdir -p build
-cd build
+echo "Running TPS demo..."
+"$BUILD_DIR/tps"
 
-# Configure with CMake
-echo "Configuring with CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Release \
-         -DCMAKE_CXX_FLAGS="-O3 -march=native -mtune=native -flto" \
-         -DENABLE_SIMD=ON \
-         -DENABLE_MULTITHREADING=ON
 
-# Build the project
-echo "Building..."
-make -j$(nproc)
 
-# Run tests
-echo "Running tests..."
-if [ -f "test_runner" ]; then
-    ./test_runner
-    echo "✓ Tests passed!"
-else
-    echo "Warning: Test runner not found"
-fi
 
-# Create release package
-echo "Creating release package..."
-cd ..
-tar -czf inference_engine_release.tar.gz \
-    build/inference_engine \
-    build/benchmark \
-    README.md \
-    docs/
 
-echo "Build completed successfully!"
-echo "Executables:"
-echo "  - build/inference_engine"
-echo "  - build/benchmark"
-echo "Package: inference_engine_release.tar.gz"
